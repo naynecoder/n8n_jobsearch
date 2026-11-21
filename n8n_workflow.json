@@ -1,0 +1,215 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "toJson",
+        "mode": "each",
+        "options": {
+          "fileName": "=spainjobs-{{ $now.setZone('Europe/Madrid').toISODate() }}.json"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        -192,
+        -112
+      ],
+      "id": "86d66114-5034-4230-814a-a85a01c4b378",
+      "name": "Response to JSON file"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/files/jobs/{{ $binary.data.fileName }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        48,
+        -112
+      ],
+      "id": "191dd719-e05c-43d3-8249-d2d537aeddbe",
+      "name": "Save JSON"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Builds the PDF report's HTML from the API response.\nconst res = $input.first().json;\nconst jobs = [...(res.items || [])].sort((a, b) => String(b.postedAt).localeCompare(String(a.postedAt)));\nconst TZ = 'Europe/Madrid';\nconst today = DateTime.now().setZone(TZ).toISODate();\n\nconst e = s => String(s ?? '').replace(/[&<>\"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[c]));\nconst k = n => (n == null ? '?' : '€' + Math.round(n / 1000) + 'k');\nconst salary = s => !s || (s.min == null && s.max == null) ? 'Salary not stated'\n  : (s.min === s.max || s.max == null ? k(s.min) : `${k(s.min)} – ${k(s.max)}`) + (s.period && s.period !== 'year' ? ` / ${s.period}` : '');\nconst when = iso => iso ? DateTime.fromISO(iso, { zone: 'utc' }).setZone(TZ).toFormat('d LLL, HH:mm') : '';\nconst cap = s => s ? String(s).charAt(0).toUpperCase() + String(s).slice(1) : '';\nconst exp = j => j.experienceYearsMin != null\n  ? (j.experienceYearsMax != null ? `${j.experienceYearsMin}–${j.experienceYearsMax} yrs` : `${j.experienceYearsMin}+ yrs`) : '';\n\nconst cards = jobs.map(j => {\n  const meta = [\n    e(j.location),\n    cap(j.workMode) + (j.remoteScope ? ` (${e(j.remoteScope)})` : ''),\n    cap(j.seniority),\n    e(j.roleFamily),\n    exp(j),\n    j.scheduleType ? e(j.scheduleType) : '',\n  ].filter(Boolean).join(' · ');\n  const flags = [\n    j.visaSponsorship?.offered ? '<span class=\"flag ok\">Visa sponsorship</span>' : '',\n    j.relocationSupport && j.relocationSupport !== 'none' ? `<span class=\"flag ok\">Relocation: ${e(j.relocationSupport)}</span>` : '',\n    j.spanishRequirement === 'none' ? '<span class=\"flag\">No Spanish needed</span>'\n      : j.spanishRequirement ? `<span class=\"flag\">Spanish: ${e(j.spanishRequirement)}</span>` : '',\n    j.company?.isAgency ? '<span class=\"flag warn\">Agency</span>' : '',\n  ].join('');\n  const tags = (j.tags || []).map(t => `<span>${e(t)}</span>`).join('');\n  return `\n  <div class=\"job\">\n    <div class=\"head\">\n      <div>\n        <h2><a href=\"${e(j.url)}\">${e(j.title)}</a></h2>\n        <div class=\"co\">${e(j.company?.name)} <span class=\"posted\">· posted ${e(when(j.postedAt))}</span></div>\n      </div>\n      <div class=\"sal\">${e(salary(j.salary))}</div>\n    </div>\n    <div class=\"meta\">${meta}</div>\n    ${flags ? `<div class=\"flags\">${flags}</div>` : ''}\n    ${tags ? `<div class=\"tags\">${tags}</div>` : ''}\n    ${j.snippet ? `<p>${e(j.snippet)}</p>` : ''}\n  </div>`;\n}).join('');\n\nconst html = `<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>SpainJobs report ${today}</title>\n<style>\n  @page { size: A4; margin: 16mm 14mm; }\n  body { font-family: -apple-system, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif; color: #1a1a1a; font-size: 11pt; }\n  h1 { font-size: 20pt; margin: 0 0 4px; }\n  .sub { color: #666; margin-bottom: 18px; font-size: 10pt; }\n  .job { border: 1px solid #ddd; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; page-break-inside: avoid; }\n  .head { display: flex; justify-content: space-between; gap: 12px; }\n  h2 { font-size: 13pt; margin: 0; } h2 a { color: #1a1a1a; text-decoration: none; }\n  .co { color: #444; font-weight: 600; margin-top: 2px; } .posted { font-weight: 400; color: #777; }\n  .sal { font-weight: 600; white-space: nowrap; }\n  .meta { color: #666; font-size: 10pt; margin: 6px 0; }\n  .flags .flag { display: inline-block; border: 1px solid #ccc; border-radius: 10px; padding: 0 8px; margin: 0 4px 4px 0; font-size: 9pt; color: #444; }\n  .flags .ok { border-color: #86c79a; color: #1d6b35; } .flags .warn { border-color: #e0b36b; color: #8a5a00; }\n  .tags span { display: inline-block; background: #eef2ff; color: #3730a3; border-radius: 10px; padding: 1px 8px; margin: 0 4px 4px 0; font-size: 9pt; }\n  p { margin: 6px 0 0; font-size: 10pt; line-height: 1.4; color: #333; }\n</style></head><body>\n<h1>SpainJobs: remote engineering jobs</h1>\n<div class=\"sub\">Report of ${e(today)} · ${jobs.length} job${jobs.length === 1 ? '' : 's'}\n  · filters: ${e([...(res.filters?.upstream || []), ...(res.filters?.local || [])].join(', '))}\n  · data fetched ${e(when(res.source?.fetchedAt))}</div>\n${cards || '<p>No jobs matched.</p>'}\n</body></html>`;\n\nreturn [{ json: { date: today, count: jobs.length, html } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -192,
+        128
+      ],
+      "id": "2d34e350-6c1e-4cd7-b6e3-f4b097d91db4",
+      "name": "Build report HTML"
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "html",
+        "options": {
+          "fileName": "index.html"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        48,
+        128
+      ],
+      "id": "85f9eb33-e706-481f-90c6-556f100caa20",
+      "name": "HTML to file"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://gotenberg:3000/forms/chromium/convert/html",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "files",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        288,
+        128
+      ],
+      "id": "5704d3d5-9b48-41b8-8ae6-596c0fcaa1d2",
+      "name": "Render PDF (Gotenberg)"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/files/reports/spainjobs-{{ $('Build report HTML').first().json.date }}.pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        528,
+        128
+      ],
+      "id": "6527f76c-c55a-4114-b9bf-ebb699484a3f",
+      "name": "Save PDF"
+    },
+    {
+      "parameters": {
+        "url": "=http://jobs-api:3010/jobs?category=engineering&workMode=remote&minSalary=60000&postedSince={{ $now.setZone('Europe/Madrid').toISODate() }}&page=1&pageSize=20",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -432,
+        16
+      ],
+      "id": "518dfdb0-689e-486c-b8bb-9b67d03eb875",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        16
+      ],
+      "id": "10cdcee1-5796-4c38-85b6-a9590174327e",
+      "name": "When clicking ‘Execute workflow’"
+    }
+  ],
+  "connections": {
+    "Response to JSON file": {
+      "main": [
+        [
+          {
+            "node": "Save JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build report HTML": {
+      "main": [
+        [
+          {
+            "node": "HTML to file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTML to file": {
+      "main": [
+        [
+          {
+            "node": "Render PDF (Gotenberg)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render PDF (Gotenberg)": {
+      "main": [
+        [
+          {
+            "node": "Save PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Response to JSON file",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build report HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "ab7844c875834294fcab98fdecce7819bd785de008579b82c78f8655b5b3a683"
+  }
+}
